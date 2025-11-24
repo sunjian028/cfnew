@@ -1,0 +1,62 @@
+name: Multi-Upstream Sync (Safe Mode)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 每天 UTC 3 点自动同步（中国时间 11 点）
+  workflow_dispatch:       # 手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout your fork
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Set Git config
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "actions@github.com"
+
+      - name: Sync multiple upstreams
+        run: |
+          # =========================
+          # 配置你想同步的仓库列表
+          # 格式：<upstream仓库地址> <你的分支> <upstream分支>
+          # =========================
+          upstreams=(
+            "https://github.com/byJoey/cfnew.git main main"
+            # "https://github.com/其他作者/其他项目.git main main"
+            # "https://github.com/其他作者/其他项目.git dev dev"
+          )
+
+          for repo_info in "${upstreams[@]}"; do
+            read -r upstream_url target_branch upstream_branch <<< "$repo_info"
+            echo "==== 同步仓库: $upstream_url ===="
+
+            # 检查 upstream 是否存在
+            if git ls-remote "$upstream_url" &> /dev/null; then
+              echo "Upstream repository exists. Proceeding..."
+            else
+              echo "Upstream repository NOT accessible. Skipping..."
+              continue
+            fi
+
+            # 设置远程
+            git remote remove temp_upstream || true
+            git remote add temp_upstream "$upstream_url"
+            git fetch temp_upstream
+
+            # 切换分支并合并
+            git checkout "$target_branch"
+            git merge "temp_upstream/$upstream_branch" --allow-unrelated-histories || true
+
+            # 推送到自己的仓库
+            git push origin "$target_branch"
+            echo "==== 同步完成: $upstream_url ===="
+          done
